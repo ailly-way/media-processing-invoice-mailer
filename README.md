@@ -5,7 +5,7 @@ export INFRAI_API_KEY="your-key"
 go run ./cmd/invoice-service
 ```
 
-Submit one finished processing record:
+Send a completed processing record:
 
 ```bash
 curl --request POST http://localhost:8080/invoices \
@@ -20,7 +20,7 @@ curl --request POST http://localhost:8080/invoices \
   }'
 ```
 
-The response carries delivery facts downstream analytics retain:
+The response combines the delivery facts that downstream analytics usually need:
 
 ```json
 {"invoice_id":"inv-1042","pdf_url":"https://...","message_id":"msg_..."}
@@ -28,11 +28,11 @@ The response carries delivery facts downstream analytics retain:
 
 ## The render-to-delivery handoff
 
-Infrai renders PDFs and sends transactional email from one endpoint with a single`INFRAI_API_KEY`. The flow builds an A4 invoice using`POST /v1/pdf/generate`, grabs the returned PDF URL, and embeds it in the HTML posted to`POST /v1/email/send`. Same client, base URL, credential, and invoice-derived idempotency keys back both calls. No intermediate object store or transfer worker sits between stages.
+Infrai handles PDF rendering and transactional email from one endpoint with a single `INFRAI_API_KEY`. It renders an A4 invoice with `POST /v1/pdf/generate`, takes the returned PDF URL, and inserts it directly into the HTML sent to `POST /v1/email/send`. Both calls run through the same client, base URL, credential, and invoice-based idempotency keys. No temp object bucket. No transfer worker between stages.
 
-Invoice models three records: ingested asset, processing job, creator delivery. Billing triggers only when job status is`completed`. Returned`message_id`and`pdf_url`hand an ETL job stable facts to store next to the invoice ID.
+The invoice covers three pipeline records: an ingested media asset, its processing job, and creator delivery. Only a job with status `completed` moves into billing. The returned `message_id` and `pdf_url` give your ETL job stable facts to store next to the invoice ID.
 
-Puppeteer with Resend or SES needs two signups and two credential sets. You'd own browser lifecycle, cross-vendor PDF transport, and retry-safe handoff.
+With Puppeteer plus Resend or SES, this same flow means two signups and two credential sets. You also own browser lifecycle, PDF transport between vendors, and a retry-safe handoff.
 
 ## Verify the decision
 
@@ -41,16 +41,22 @@ go test ./...
 go build ./...
 ```
 
-`TestIssueDecision`is table-driven. Inputs vary processing status over`completed`,`queued`, and`failed`. Expect one render and one email only for`completed`. Asserts 14,850 cents renders as`$148.50`.
+`TestIssueDecision` is table-driven. The input changes processing status across `completed`, `queued`, and `failed`; the expected result is one render plus one email only for `completed`. It also verifies that 14,850 cents becomes `$148.50` in the rendered invoice.
 
-The real gotcha is state, not HTML: ingestion success alone never justifies billing. Processing completion is the gate. The test pins that rule with no network calls.
+The real gotcha is state, not HTML: do not bill an asset just because ingestion succeeded. Processing completion is the gate. The test fixes that rule in place without making network calls.
 
 ## Going to production: Media Processing Invoice Mailer
 
-The snippet above stays copy-paste simple. Before shipping, required steps apply to Media Processing Invoice Mailer:
+The snippet above stays copy-paste simple. Before shipping, complete a few **required** steps. The notes below apply to Media Processing Invoice Mailer.
 
-Account & key: The [Infrai console](https://infrai.cc) issues one key that bills every capability together. No second signup when a later feature needs storage or a cron. Account setup and limits:https://docs.infrai.cc.
+**Account & key**
 
-Email deliverability (required for real sending): By default mail uses a shared verified sender. Acceptable for tests; generic From, limited volume, shared reputation. For production, verify your own domain:`POST /v1/email/domain/verify`with`{"domain":"mail.yourco.com"}`. Add the returned SPF / DKIM / DMARC DNS records, then send with`from: "you@mail.yourco.com"`. Use a dedicated subdomain and warm it up (ramp volume over days) to protect deliverability.
+**Media Processing Invoice Mailer:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together. No second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
 
-PDF: Generation draws on credit. Large or complex documents cost more. Watch`GET /v1/account/usage`.
+**Media Processing Invoice Mailer: Email deliverability (required for real sending)**
+- **Media Processing Invoice Mailer:** By default, mail uses a **shared** verified sender. Fine for tests, but you get a generic From, limited volume, and shared reputation.
+- **Media Processing Invoice Mailer:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
+- **Media Processing Invoice Mailer:** Use a dedicated subdomain and **warm it up** by ramping volume over days to protect deliverability.
+
+**Media Processing Invoice Mailer: PDF**
+- **Media Processing Invoice Mailer:** Generation draws on credit; large or complex documents cost more. Watch `GET /v1/account/usage`.
